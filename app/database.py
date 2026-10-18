@@ -5,10 +5,20 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 
 from .config import settings
 
-_is_sqlite = settings.database_url.startswith("sqlite")
+def normalize_database_url(url: str) -> str:
+    """Normalize database connection string.
+    Render and other PaaS providers supply PostgreSQL URLs starting with 'postgres://',
+    which SQLAlchemy 2.0 rejects. Normalize to 'postgresql://'."""
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql://", 1)
+    return url
+
+
+_db_url = normalize_database_url(settings.database_url)
+_is_sqlite = _db_url.startswith("sqlite")
 
 engine = create_engine(
-    settings.database_url,
+    _db_url,
     connect_args={"check_same_thread": False} if _is_sqlite else {},
     pool_pre_ping=True,
 )
