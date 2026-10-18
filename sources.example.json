@@ -1,0 +1,64 @@
+{
+  "sources": [
+    {
+      "type": "greenhouse",
+      "enabled": false,
+      "boards": [{"token": "databricks", "company": "Databricks"}]
+    },
+    {
+      "type": "lever",
+      "enabled": false,
+      "companies": ["cred"]
+    },
+    {
+      "type": "ashby",
+      "enabled": false,
+      "boards": ["openai"]
+    },
+    {
+      "type": "adzuna",
+      "enabled": false,
+      "country": "in",
+      "pages": 2,
+      "queries": ["internship", "software intern", "data science intern"]
+    },
+    {
+      "type": "jobposting_pages",
+      "enabled": false,
+      "name": "example_careers",
+      "company": "Example Co",
+      "pages": ["https://careers.example.com/internships"],
+      "sitemaps": ["https://careers.example.com/sitemap.xml"],
+      "url_pattern": "intern",
+      "max_pages": 40
+    },
+    {
+      "type": "rss",
+      "enabled": false,
+      "name": "example_feed",
+      "url": "https://example.com/jobs.xml",
+      "company": "Example Co"
+    },
+    {
+      "type": "json_feed",
+      "enabled": false,
+      "name": "partner_x",
+      "url": "https://api.example.com/internships",
+      "items_path": "data.items",
+      "headers": {"Authorization": "Bearer ${PARTNER_X_TOKEN}"},
+      "complete_listing": false,
+      "field_map": {
+        "external_id": "id",
+        "title": "title",
+        "company": "company.name",
+        "description": "description",
+        "location": "city",
+        "stipend": "stipend",
+        "duration": "duration",
+        "deadline": "last_date",
+        "application_url": "apply_link",
+        "source_url": "link"
+      }
+    }
+  ]
+}

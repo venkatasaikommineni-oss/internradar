@@ -1,0 +1,164 @@
+# One company per line (# = comment). Names only: app.tools.discover_boards checks which of
+# them publish a public Greenhouse / Lever / Ashby job board - nothing here is assumed to exist.
+# Indian startups and scale-ups
+Razorpay
+PhonePe
+Paytm
+CRED
+Meesho
+Flipkart
+Swiggy
+Zomato
+Zepto
+Groww
+Zerodha
+Upstox
+Dream11
+Ola
+Freshworks
+Zoho
+Postman
+BrowserStack
+Chargebee
+Druva
+InMobi
+ShareChat
+Myntra
+Nykaa
+Lenskart
+PolicyBazaar
+Cars24
+Dunzo
+Urban Company
+Rapido
+Delhivery
+Unacademy
+PhysicsWallah
+upGrad
+Vedantu
+Licious
+BigBasket
+PharmEasy
+Practo
+Slice
+Jupiter
+Navi
+Juspay
+Pine Labs
+BharatPe
+Zeta
+MoEngage
+CleverTap
+WebEngage
+Hasura
+Atlan
+Sprinklr
+Innovaccer
+Mindtickle
+Whatfix
+LeadSquared
+Yellow.ai
+Gupshup
+Haptik
+Uniphore
+Observe.AI
+Fractal
+Tredence
+ThoughtSpot
+Darwinbox
+Khatabook
+OkCredit
+Spinny
+Rebel Foods
+Eruditus
+Scaler
+Coding Ninjas
+Newton School
+Ather Energy
+Ultrahuman
+Sarvam AI
+Krutrim
+Wadhwani AI
+Turing
+Toplyne
+Mamaearth
+Giva
+Cashfree
+Open Financial
+Setu
+Decentro
+Perfios
+Signzy
+IDfy
+Kissflow
+Zenoti
+Icertis
+Capillary Technologies
+Netcore
+Exotel
+Ozonetel
+Zluri
+Pesto Tech
+# Global companies with large India engineering teams
+Databricks
+MongoDB
+Confluent
+Elastic
+Atlassian
+Stripe
+Airbnb
+Coinbase
+Twilio
+Okta
+Datadog
+Cloudflare
+Figma
+Notion
+Ramp
+Rippling
+Deel
+GitLab
+HashiCorp
+Snowflake
+Splunk
+Palo Alto Networks
+Zscaler
+Samsara
+Roblox
+Pinterest
+Reddit
+Discord
+Duolingo
+Grammarly
+Airtable
+Canva
+Wise
+Revolut
+Anthropic
+OpenAI
+Scale AI
+Cohere
+Hugging Face
+Supabase
+Vercel
+Retool
+Brex
+Plaid
+Gusto
+Asana
+Dropbox
+Box
+Qualtrics
+Medallia
+New Relic
+PagerDuty
+LaunchDarkly
+Sumo Logic
+Nutanix
+Pure Storage
+Rubrik
+Cohesity
+Veeam
+CrowdStrike
+SentinelOne
+Wiz

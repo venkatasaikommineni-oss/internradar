@@ -1,0 +1,91 @@
+{
+  "sources": [
+    {
+      "type": "lever",
+      "companies": [
+        {
+          "token": "cred",
+          "company": "CRED"
+        },
+        {
+          "token": "meesho",
+          "company": "Meesho"
+        },
+        {
+          "token": "zeta",
+          "company": "Zeta"
+        }
+      ]
+    },
+    {
+      "type": "greenhouse",
+      "boards": [
+        {
+          "token": "groww",
+          "company": "Groww"
+        },
+        {
+          "token": "thoughtworks",
+          "company": "Thoughtworks"
+        },
+        {
+          "token": "hackerrank",
+          "company": "HackerRank"
+        },
+        {
+          "token": "inmobi",
+          "company": "InMobi"
+        },
+        {
+          "token": "rubrik",
+          "company": "Rubrik"
+        },
+        {
+          "token": "stripe",
+          "company": "Stripe"
+        },
+        {
+          "token": "twilio",
+          "company": "Twilio"
+        },
+        {
+          "token": "databricks",
+          "company": "Databricks"
+        },
+        {
+          "token": "cloudflare",
+          "company": "Cloudflare"
+        },
+        {
+          "token": "gitlab",
+          "company": "GitLab"
+        },
+        {
+          "token": "figma",
+          "company": "Figma"
+        }
+      ]
+    },
+    {
+      "type": "ashby",
+      "boards": [
+        {
+          "token": "atlan",
+          "company": "Atlan"
+        },
+        {
+          "token": "ramp",
+          "company": "Ramp"
+        },
+        {
+          "token": "openai",
+          "company": "OpenAI"
+        },
+        {
+          "token": "figma",
+          "company": "Figma"
+        }
+      ]
+    }
+  ]
+}
