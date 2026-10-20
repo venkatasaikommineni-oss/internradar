@@ -150,6 +150,42 @@ class ProfileUpdate(BaseModel):
     notify_new_matches: bool | None = None
     notify_deadline: bool | None = None
 
+    @field_validator("gender", mode="before")
+    @classmethod
+    def _validate_gender(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip().lower().replace("-", "_").replace(" ", "_")
+            if not s or s in ("none", "null", ""):
+                return None
+            if s in ("male", "m"):
+                return "male"
+            if s in ("female", "f"):
+                return "female"
+            if s in ("non_binary", "nonbinary", "nb"):
+                return "non_binary"
+            if s in ("prefer_not_to_say", "prefer_not_to_state", "other", "prefer_not_to_declare"):
+                return "prefer_not_to_say"
+            return s
+        return v
+
+    @field_validator("work_types", mode="before")
+    @classmethod
+    def _validate_work_types(cls, v):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            cleaned = []
+            for item in v:
+                s = str(item).strip().lower()
+                if s in ("remote", "hybrid", "onsite"):
+                    cleaned.append(s)
+            if not cleaned:
+                raise ValueError("At least one work type is required")
+            return cleaned
+        return v
+
     @field_validator("full_name", "college", "degree", "location", mode="before")
     @classmethod
     def _validate_required_text(cls, v: str | None, info):
@@ -163,7 +199,7 @@ class ProfileUpdate(BaseModel):
             return s
         return v
 
-    @field_validator("skills", "desired_roles", "work_types", mode="before")
+    @field_validator("skills", "desired_roles", mode="before")
     @classmethod
     def _validate_required_list(cls, v: list | None, info):
         if v is None:
@@ -236,6 +272,21 @@ class UserOut(BaseModel):
     created_at: datetime
     updated_at: datetime
     last_login: datetime | None = None
+
+    @field_validator("is_admin", "email_verified", "is_onboarded", mode="before")
+    @classmethod
+    def _coerce_bool_default_false(cls, v):
+        if v is None:
+            return False
+        return bool(v)
+
+    @field_validator("notify_new_matches", "notify_deadline", mode="before")
+    @classmethod
+    def _coerce_bool_default_true(cls, v):
+        if v is None:
+            return True
+        return bool(v)
+
 
 
 class PublicUserOut(BaseModel):
@@ -380,6 +431,20 @@ class AdminUserListItem(BaseModel):
     updated_at: datetime
     last_login: datetime | None = None
 
+    @field_validator("is_admin", "is_onboarded", "has_resume", mode="before")
+    @classmethod
+    def _coerce_bool_false(cls, v):
+        if v is None:
+            return False
+        return bool(v)
+
+    @field_validator("is_active", mode="before")
+    @classmethod
+    def _coerce_bool_true(cls, v):
+        if v is None:
+            return True
+        return bool(v)
+
 
 class AdminUserDetail(AdminUserListItem):
     mobile: str | None = None
@@ -396,6 +461,14 @@ class AdminUserDetail(AdminUserListItem):
     saved_count: int = 0
     activity_count: int = 0
     connections_count: int = 0
+
+    @field_validator("email_verified", mode="before")
+    @classmethod
+    def _coerce_email_verified(cls, v):
+        if v is None:
+            return False
+        return bool(v)
+
 
 
 class AdminUserPage(BaseModel):

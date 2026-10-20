@@ -24,6 +24,20 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(engine)
     ensure_columns()
 
+    # Ensure baseline verified internship catalog (at least 27 open opportunities)
+    # Runs during production / server startup; skipped in mock unit test environments
+    if settings.enable_scheduler and os.environ.get("TESTING") != "true":
+        try:
+            from .database import SessionLocal
+            from .models import Internship
+            with SessionLocal() as db:
+                open_count = db.query(Internship).filter(Internship.status.in_(["open", "closing_soon"])).count()
+                if open_count < 27:
+                    from scripts.seed_data import seed_listings
+                    seed_listings(db)
+        except Exception as e:
+            logging.getLogger("internradar.main").warning("Baseline seed check skipped: %s", e)
+
     from .ai import semantic
     semantic.configure(enabled=settings.enable_semantic, model=settings.semantic_model)
 

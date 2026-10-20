@@ -239,6 +239,7 @@ export const api = {
       min_stipend?: number;
       company?: string;
       status?: string;
+      category?: string;
       include_expired?: boolean;
       sort?: "newest" | "deadline" | "stipend";
       limit?: number;
@@ -253,6 +254,7 @@ export const api = {
       if (params.min_stipend != null) sp.set("min_stipend", String(params.min_stipend));
       if (params.company) sp.set("company", params.company);
       if (params.status) sp.set("status", params.status);
+      if (params.category) sp.set("category", params.category);
       if (params.include_expired) sp.set("include_expired", "true");
       if (params.sort) sp.set("sort", params.sort);
       sp.set("limit", String(params.limit ?? 20));
@@ -261,7 +263,14 @@ export const api = {
     },
 
     getById: (id: number) => request<Internship>(`/api/internships/${id}`),
-    refresh: () => request<{ message: string }>("/api/internships/refresh", { method: "POST" }),
+    refresh: () =>
+      request<{ status: string; message: string; last_run_at?: string }>("/api/internships/refresh", {
+        method: "POST",
+      }),
+    refreshStatus: () =>
+      request<{ status: string; is_running: boolean; message: string; last_run_at?: string }>(
+        "/api/internships/refresh-status"
+      ),
   },
 
   // ── Recommendations (Matches) ───────────────────────────────────────────────

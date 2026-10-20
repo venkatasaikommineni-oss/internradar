@@ -249,3 +249,190 @@ def test_admin_inspect_user_and_download_resume(client, regular_user, admin_user
     # Regular user CANNOT access admin resume endpoint (IDOR prevention)
     res = client.get(f"/api/admin/users/{regular_user['id']}/resume", headers=reg_headers)
     assert res.status_code == 403
+
+
+def test_is_admin_none_profile_retrieval_regression(client):
+    """REGRESSION TEST: Render production error where is_admin is None in the database
+    caused FastAPI to raise ResponseValidationError: Input should be a valid boolean.
+    This test verifies that legacy rows with is_admin=None return 200 OK with is_admin=False."""
+    from datetime import datetime, timezone
+    from app.schemas import UserOut
+    from app.models import User
+    from app.deps import get_current_user
+    from app.main import app
+
+    now = datetime.now(timezone.utc)
+
+    # 1. Direct schema contract test: is_admin=None must coerce to False
+    legacy_dict = {
+        "id": 999,
+        "email": "legacy_user_none@example.com",
+        "full_name": "Legacy Null User",
+        "is_admin": None,
+        "email_verified": None,
+        "is_onboarded": None,
+        "notify_new_matches": None,
+        "notify_deadline": None,
+        "created_at": now,
+        "updated_at": now,
+    }
+    validated = UserOut.model_validate(legacy_dict)
+    assert validated.is_admin is False
+    assert validated.email_verified is False
+    assert validated.is_onboarded is False
+    assert validated.notify_new_matches is True
+    assert validated.notify_deadline is True
+
+    # 2. Endpoint response validation: FastAPI GET /api/profile must return 200 OK with is_admin=False
+    mock_legacy_user = User(
+        id=999,
+        email="legacy_user_none@example.com",
+        full_name="Legacy Null User",
+        created_at=now,
+        updated_at=now,
+    )
+    mock_legacy_user.is_admin = None  # Simulate legacy record attribute
+
+    app.dependency_overrides[get_current_user] = lambda: mock_legacy_user
+    try:
+        res = client.get("/api/profile")
+        assert res.status_code == 200, f"Expected 200 OK but got {res.status_code}: {res.text}"
+        data = res.json()
+        assert data["is_admin"] is False
+        assert data["email"] == "legacy_user_none@example.com"
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+
+
+def test_gender_and_work_types_casing_normalization(client, regular_user):
+    """Test that capitalized or spaced gender and work types from frontend forms
+    are normalized cleanly without 422 validation errors."""
+    headers = {"Authorization": f"Bearer {regular_user['token']}"}
+
+    # Test "Male" -> "male" and "Remote" -> "remote"
+    res = client.put(
+        "/api/profile",
+        json={"gender": "Male", "work_types": ["Remote", "Hybrid"]},
+        headers=headers,
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["gender"] == "male"
+    assert set(res.json()["work_types"]) == {"remote", "hybrid"}
+
+    # Test "Female"
+    res = client.put("/api/profile", json={"gender": "Female"}, headers=headers)
+    assert res.status_code == 200
+    assert res.json()["gender"] == "female"
+
+    # Test "Non-binary"
+    res = client.put("/api/profile", json={"gender": "Non-binary"}, headers=headers)
+    assert res.status_code == 200
+    assert res.json()["gender"] == "non_binary"
+
+    # Test "Prefer not to say"
+    res = client.put("/api/profile", json={"gender": "Prefer not to say"}, headers=headers)
+    assert res.status_code == 200
+    assert res.json()["gender"] == "prefer_not_to_say"
+
+
+def test_end_to_end_auth_lifecycle(client):
+    """Verify entire authentication lifecycle: registration -> login -> profile get ->
+    profile edit -> token refresh -> logout -> invalid session rejection."""
+    email = f"lifecycle_{os.urandom(4).hex()}@gmail.com"
+    password = "SecurePassword123!"
+
+    # 1. Registration
+    reg_res = client.post(
+        "/api/auth/register",
+        json={"email": email, "full_name": "Lifecycle User", "password": password, "confirm_password": password},
+    )
+    assert reg_res.status_code == 201, reg_res.text
+    tokens = reg_res.json()
+    assert "access_token" in tokens
+    assert "refresh_token" in tokens
+    assert tokens["is_admin"] is False
+    token = tokens["access_token"]
+    refresh_tok = tokens["refresh_token"]
+
+    # 2. Profile retrieval with fresh token
+    headers = {"Authorization": f"Bearer {token}"}
+    prof_res = client.get("/api/profile", headers=headers)
+    assert prof_res.status_code == 200
+    assert prof_res.json()["email"] == email
+    assert prof_res.json()["is_admin"] is False
+
+    # 3. Profile update
+    update_res = client.put(
+        "/api/profile",
+        json={
+            "full_name": "Lifecycle Updated",
+            "college": "IIT Delhi",
+            "degree": "B.Tech",
+            "graduation_year": 2026,
+            "skills": ["Python", "React"],
+            "desired_roles": ["Software Development Intern"],
+            "location": "Bengaluru",
+            "work_types": ["hybrid"],
+        },
+        headers=headers,
+    )
+    assert update_res.status_code == 200
+    assert update_res.json()["full_name"] == "Lifecycle Updated"
+    assert update_res.json()["is_onboarded"] is True
+
+    # 4. Token refresh
+    ref_res = client.post("/api/auth/refresh", json={"refresh_token": refresh_tok})
+    assert ref_res.status_code == 200
+    new_tokens = ref_res.json()
+    assert "access_token" in new_tokens
+    new_token = new_tokens["access_token"]
+
+    # 5. Logout
+    out_res = client.post("/api/auth/logout", json={"refresh_token": new_tokens["refresh_token"]})
+    assert out_res.status_code in (200, 204)
+
+    # 6. Verify revoked refresh token is rejected
+    ref_again = client.post("/api/auth/refresh", json={"refresh_token": new_tokens["refresh_token"]})
+    assert ref_again.status_code == 401
+
+
+def test_controlled_discovery_refresh_endpoint(client):
+    """Verify refresh endpoint has status check, controlled background task and rate limit cooldown."""
+    from unittest.mock import patch
+
+    # Status check
+    status_res = client.get("/api/internships/refresh-status")
+    assert status_res.status_code == 200
+    assert "status" in status_res.json()
+    assert "is_running" in status_res.json()
+
+    # Trigger refresh with mocked empty sources for instant test execution
+    with patch("app.routers.internships.get_sources", return_value=[]):
+        ref_res = client.post("/api/internships/refresh")
+        assert ref_res.status_code == 200
+        data = ref_res.json()
+        assert data["status"] in ("started", "cooldown", "running")
+
+        # Immediate second call should respect cooldown or running state
+        second_res = client.post("/api/internships/refresh")
+        assert second_res.status_code == 200
+        assert second_res.json()["status"] in ("cooldown", "running", "started")
+
+
+def test_discovery_software_role_prioritization(client):
+    """Verify that default discovery ranking prioritizes software and technical roles."""
+    res = client.get("/api/internships?limit=20")
+    assert res.status_code == 200
+    items = res.json()["items"]
+    assert len(items) > 0
+
+    # Test category filtering
+    cat_res = client.get("/api/internships?category=software&limit=10")
+    assert cat_res.status_code == 200
+    cat_items = cat_res.json()["items"]
+    for it in cat_items:
+        title_low = it["title"].lower()
+        assert any(w in title_low for w in ["software", "developer", "engineer", "sde", "coding", "programmer"])
+

@@ -112,6 +112,10 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
     if not user.is_active:
         raise HTTPException(403, "Account disabled")
 
+    # If is_admin is None on legacy record, ensure non-admin default
+    if user.is_admin is None:
+        user.is_admin = False
+
     # If email matches admin emails config, ensure is_admin is True
     if email in [e.lower() for e in settings.admin_emails]:
         user.is_admin = True

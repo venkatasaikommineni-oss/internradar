@@ -113,8 +113,20 @@ def create_user_direct(
 
 # ── own profile ───────────────────────────────────────────────────────────────
 @router.get("/profile", response_model=UserOut)
-def get_profile(user: User = Depends(get_current_user)):
+def get_profile(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Auto-repair legacy record if is_admin or booleans are None
+    if user.is_admin is None or user.email_verified is None or user.is_onboarded is None:
+        user.is_admin = bool(user.is_admin)
+        user.email_verified = bool(user.email_verified)
+        user.is_onboarded = bool(user.is_onboarded)
+        try:
+            db.add(user)
+            db.commit()
+            db.refresh(user)
+        except Exception:
+            db.rollback()
     return user
+
 
 
 @router.put("/profile", response_model=UserOut)

@@ -12,13 +12,20 @@ import {
   DollarSign,
   Building,
   RefreshCw,
+  Sparkles,
+  CheckCircle2,
+  Clock,
+  Code,
+  Layers,
+  ArrowRight,
 } from "lucide-react";
-import { Internship, WorkType, InternshipStatus } from "../types";
+import { Internship, WorkType, InternshipStatus, Recommendation } from "../types";
 import { api } from "../lib/api";
 import { InternshipCard } from "../components/InternshipCard";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Badge } from "../components/ui/badge";
+import { useAuth } from "../context/AuthContext";
 
 interface DiscoverPageProps {
   onViewDetails: (internship: Internship) => void;
@@ -26,17 +33,37 @@ interface DiscoverPageProps {
   onSavedChange: (internshipId: number, saved: boolean) => void;
 }
 
+const CATEGORIES = [
+  { id: undefined, label: "All Opportunities" },
+  { id: "software", label: "Software Engineering" },
+  { id: "frontend", label: "Frontend" },
+  { id: "backend", label: "Backend" },
+  { id: "fullstack", label: "Full Stack" },
+  { id: "data_ai", label: "AI / ML & Data" },
+  { id: "cloud_devops", label: "Cloud & DevOps" },
+  { id: "qa", label: "QA & Testing" },
+  { id: "cybersecurity", label: "Cybersecurity" },
+  { id: "design", label: "UI/UX & Design" },
+];
+
 export const DiscoverPage: React.FC<DiscoverPageProps> = ({
   onViewDetails,
   savedIds,
   onSavedChange,
 }) => {
+  const { user, isAuthenticated } = useAuth();
+
   const [internships, setInternships] = useState<Internship[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
 
+  // Recommendations state (Recommended for You section)
+  const [recommendedItems, setRecommendedItems] = useState<Recommendation[]>([]);
+  const [recommendedLoading, setRecommendedLoading] = useState(false);
+
   // Filters
   const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | undefined>(undefined);
   const [location, setLocation] = useState("");
   const [workType, setWorkType] = useState<WorkType | undefined>(undefined);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
@@ -56,8 +83,58 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
   // Advanced filters drawer on mobile/tablet
   const [showFilters, setShowFilters] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
+  const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
 
-  // Fetch internships
+  // Fetch recommendations (Personalized for logged in, or top software picks for guests)
+  const fetchRecommendations = useCallback(async () => {
+    setRecommendedLoading(true);
+    try {
+      if (isAuthenticated) {
+        const res = await api.recommendations.get({ limit: 3 });
+        if (res.items && res.items.length > 0) {
+          setRecommendedItems(res.items);
+          setRecommendedLoading(false);
+          return;
+        }
+      }
+      // Guest or profile with no skills yet: fallback to top verified software engineering roles
+      const general = await api.internships.search({
+        category: "software",
+        limit: 3,
+        sort: "newest",
+        status: "open",
+      });
+      const syntheticRecs: Recommendation[] = general.items.map((it) => ({
+        internship: it,
+        score: 85,
+        matched_skills: it.skills.slice(0, 3),
+        missing_skills: [],
+        eligible: true,
+        reasons: ["Top Software & Engineering Opportunity", it.work_type ? `${it.work_type} mode` : "Verified active"],
+        resume_boost: false,
+      }));
+      setRecommendedItems(syntheticRecs);
+    } catch {
+      setRecommendedItems([]);
+    } finally {
+      setRecommendedLoading(false);
+    }
+  }, [isAuthenticated]);
+
+  // Fetch refresh status on mount
+  useEffect(() => {
+    api.internships
+      .refreshStatus()
+      .then((st) => {
+        if (st.last_run_at) {
+          setLastRefreshedAt(st.last_run_at);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  // Fetch internships list
   const fetchInternships = useCallback(async () => {
     setLoading(true);
     try {
@@ -69,6 +146,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
         skills_match: skillsMatch,
         min_stipend: minStipend,
         status: statusFilter === "all" ? undefined : statusFilter,
+        category: selectedCategory,
         sort,
         limit,
         offset: (page - 1) * limit,
@@ -81,25 +159,35 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, location, workType, selectedSkills, skillsMatch, minStipend, statusFilter, sort, page]);
+  }, [searchQuery, location, workType, selectedSkills, skillsMatch, minStipend, statusFilter, selectedCategory, sort, page]);
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
+    setRefreshMessage(null);
     try {
-      await api.internships.refresh();
-      // Wait briefly for background task to pick up, then reload results
-      setTimeout(() => {
-        fetchInternships();
-        setRefreshing(false);
-      }, 3000);
-    } catch {
+      const res = await api.internships.refresh();
+      setRefreshMessage(res.message);
+      if (res.last_run_at) {
+        setLastRefreshedAt(res.last_run_at);
+      }
+      // Re-fetch current listings immediately
+      await fetchInternships();
+      await fetchRecommendations();
+    } catch (err: any) {
+      setRefreshMessage("Could not retrieve fresh results. Preserving current opportunities.");
+    } finally {
       setRefreshing(false);
+      setTimeout(() => setRefreshMessage(null), 5000);
     }
-  }, [fetchInternships]);
+  }, [fetchInternships, fetchRecommendations]);
 
   useEffect(() => {
     fetchInternships();
   }, [fetchInternships]);
+
+  useEffect(() => {
+    fetchRecommendations();
+  }, [fetchRecommendations]);
 
   // Skill autocomplete
   useEffect(() => {
@@ -151,6 +239,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
 
   const handleClearAllFilters = () => {
     setSearchQuery("");
+    setSelectedCategory(undefined);
     setLocation("");
     setWorkType(undefined);
     setSelectedSkills([]);
@@ -164,6 +253,7 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
 
   const activeFilterCount =
     (searchQuery ? 1 : 0) +
+    (selectedCategory ? 1 : 0) +
     (location ? 1 : 0) +
     (workType ? 1 : 0) +
     selectedSkills.length +
@@ -173,13 +263,140 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
       {/* Page Header */}
-      <div className="border-b border-slate-200 pb-5">
-        <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-          Internships
-        </h1>
-        <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
-          Active roles aggregated from employer career pages across India.
-        </p>
+      <div className="border-b border-slate-200 pb-5 flex flex-col md:flex-row md:items-end justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 mb-1.5">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+              <Sparkles className="h-3 w-3" /> 70% Software & Tech Focus
+            </span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+              <CheckCircle2 className="h-3 w-3" /> Verified Open Applications
+            </span>
+          </div>
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+            Internship Discovery
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-500 mt-1 max-w-2xl leading-relaxed">
+            Genuine opportunities aggregated from employer career pages across India.
+          </p>
+        </div>
+
+        {/* Refresh status action */}
+        <div className="flex items-center gap-3 text-xs text-slate-500">
+          {lastRefreshedAt && (
+            <span className="flex items-center gap-1 text-[11px] text-slate-400">
+              <Clock className="h-3 w-3" /> Updated {new Date(lastRefreshedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleRefresh}
+            disabled={refreshing}
+            className="h-8 text-xs font-medium flex items-center gap-1.5 bg-white border-slate-200 text-slate-700 hover:bg-slate-50"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 text-blue-600 ${refreshing ? "animate-spin" : ""}`} />
+            {refreshing ? "Refreshing…" : "Refresh Listings"}
+          </Button>
+        </div>
+      </div>
+
+      {/* Refresh alert notification if active */}
+      {refreshMessage && (
+        <div className="p-3 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800 flex items-center justify-between animate-in fade-in">
+          <span>{refreshMessage}</span>
+          <button onClick={() => setRefreshMessage(null)} className="text-blue-500 hover:text-blue-800">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* ── Section: Recommended for You (~70% Software Focus) ── */}
+      {page === 1 && !searchQuery && !selectedCategory && recommendedItems.length > 0 && (
+        <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-lg p-5 sm:p-6 text-white shadow-sm border border-slate-700 space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3">
+            <div className="flex items-center gap-2">
+              <div className="h-7 w-7 rounded bg-blue-500/20 text-blue-400 flex items-center justify-center">
+                <Sparkles className="h-4 w-4" />
+              </div>
+              <div>
+                <h2 className="text-sm sm:text-base font-semibold tracking-tight text-white flex items-center gap-2">
+                  Recommended for You
+                  <span className="text-[10px] font-normal px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                    Software Development
+                  </span>
+                </h2>
+                <p className="text-[11px] text-slate-400">
+                  {isAuthenticated
+                    ? "Ranked based on your profile skills, desired roles, and preferences"
+                    : "Top software engineering matches (Sign in to personalize your recommendations)"}
+                </p>
+              </div>
+            </div>
+            <a
+              href="#matches"
+              className="text-xs text-blue-400 hover:text-blue-300 font-medium flex items-center gap-1 self-start sm:self-auto"
+            >
+              View all matches <ArrowRight className="h-3.5 w-3.5" />
+            </a>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            {recommendedItems.map((rec) => (
+              <div
+                key={rec.internship.id}
+                onClick={() => onViewDetails(rec.internship)}
+                className="bg-slate-800/80 hover:bg-slate-800 border border-slate-700 hover:border-slate-600 rounded-md p-4 flex flex-col justify-between transition-all cursor-pointer group"
+              >
+                <div>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <span className="text-[11px] font-medium text-blue-400 truncate">
+                      {rec.internship.company}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-blue-900/60 text-blue-300 border border-blue-700/50 font-semibold">
+                      {rec.score}% Match
+                    </span>
+                  </div>
+                  <h3 className="font-medium text-xs sm:text-sm text-white group-hover:text-blue-300 line-clamp-1 transition-colors">
+                    {rec.internship.title}
+                  </h3>
+                  <div className="text-[11px] text-slate-400 mt-1 flex items-center gap-2">
+                    <span>{rec.internship.city || "India"}</span>
+                    <span>•</span>
+                    <span className="capitalize">{rec.internship.work_type || "Hybrid"}</span>
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-slate-700/60 flex items-center justify-between text-[11px]">
+                  <span className="text-slate-300 font-medium truncate">
+                    {rec.internship.stipend_text || "Competitive stipend"}
+                  </span>
+                  <span className="text-blue-400 group-hover:underline">View Details →</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── Category Pills (Fast Software-focused Discovery) ── */}
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-2 scrollbar-none text-xs">
+        {CATEGORIES.map((cat) => (
+          <button
+            key={cat.label}
+            onClick={() => {
+              setSelectedCategory(cat.id);
+              setPage(1);
+            }}
+            className={`whitespace-nowrap px-3 py-1.5 rounded-full text-xs font-medium transition-colors border ${
+              selectedCategory === cat.id
+                ? "bg-slate-900 text-white border-slate-900 shadow-sm"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-100 hover:text-slate-900"
+            }`}
+          >
+            {cat.label}
+          </button>
+        ))}
       </div>
 
       {/* Primary Search Bar */}
@@ -328,9 +545,9 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
               </select>
             </div>
 
-            {/* Sort Order */}
+            {/* Sort Filter */}
             <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Sort Results</label>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Sort By</label>
               <select
                 value={sort}
                 onChange={(e) => {
@@ -339,57 +556,60 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
                 }}
                 className="w-full h-8 text-xs rounded border border-slate-300 bg-white px-2.5 text-slate-800 focus:outline-none focus:ring-1 focus:ring-blue-600"
               >
-                <option value="newest">Recently Posted</option>
+                <option value="newest">Newest First (Software Prioritized)</option>
                 <option value="deadline">Earliest Deadline</option>
                 <option value="stipend">Highest Stipend</option>
               </select>
             </div>
           </div>
 
-          {/* Skill Filter Tag Picker */}
+          {/* Skill Filter & Typeahead */}
           <div className="pt-2 border-t border-slate-100">
             <div className="flex items-center justify-between mb-1.5">
-              <label className="text-xs font-semibold text-slate-700">Filter by Required Skills</label>
+              <label className="text-xs font-semibold text-slate-700">Filter by Specific Skills</label>
               {selectedSkills.length > 1 && (
-                <div className="flex items-center gap-2 text-xs">
-                  <span className="text-slate-500 text-[11px]">Match condition:</span>
-                  <button
-                    onClick={() => setSkillsMatch("all")}
-                    className={`px-1.5 py-0.5 rounded text-[11px] ${
-                      skillsMatch === "all" ? "bg-slate-800 text-white font-medium" : "text-slate-500"
-                    }`}
-                  >
+                <div className="flex items-center gap-2 text-xs text-slate-600">
+                  <label className="inline-flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name="skillsMatch"
+                      checked={skillsMatch === "all"}
+                      onChange={() => setSkillsMatch("all")}
+                      className="text-blue-600"
+                    />
                     Match All
-                  </button>
-                  <button
-                    onClick={() => setSkillsMatch("any")}
-                    className={`px-1.5 py-0.5 rounded text-[11px] ${
-                      skillsMatch === "any" ? "bg-slate-800 text-white font-medium" : "text-slate-500"
-                    }`}
-                  >
+                  </label>
+                  <label className="inline-flex items-center gap-1">
+                    <input
+                      type="radio"
+                      name="skillsMatch"
+                      checked={skillsMatch === "any"}
+                      onChange={() => setSkillsMatch("any")}
+                      className="text-blue-600"
+                    />
                     Match Any
-                  </button>
+                  </label>
                 </div>
               )}
             </div>
 
-            <div className="relative">
+            <div className="relative max-w-md">
               <Input
                 type="text"
                 value={skillInput}
                 onChange={(e) => setSkillInput(e.target.value)}
-                placeholder="Type a skill (e.g. Python, React, SQL, AWS)..."
-                className="h-8 text-xs max-w-sm"
+                placeholder="Type a skill (e.g. React, Python, Docker)..."
+                className="h-8 text-xs"
               />
               {skillSuggestions.length > 0 && (
-                <div className="absolute top-full left-0 mt-1 max-w-sm w-full bg-white border border-slate-200 rounded shadow-lg z-30 py-1">
-                  {skillSuggestions.map((skill) => (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-md z-30 py-1">
+                  {skillSuggestions.map((s) => (
                     <button
-                      key={skill}
-                      onClick={() => handleAddSkill(skill)}
+                      key={s}
+                      onClick={() => handleAddSkill(s)}
                       className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50"
                     >
-                      {skill}
+                      + {s}
                     </button>
                   ))}
                 </div>

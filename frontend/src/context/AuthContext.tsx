@@ -30,9 +30,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const data = await api.profile.get();
       setUser(data);
-    } catch {
-      clearTokens();
-      setUser(null);
+    } catch (err: any) {
+      // Only clear tokens if the server explicitly reports token unauthorized (401)
+      if (err?.status === 401) {
+        clearTokens();
+        setUser(null);
+      } else {
+        console.error("Profile retrieval error (preserving session):", err);
+      }
     } finally {
       setLoading(false);
     }
