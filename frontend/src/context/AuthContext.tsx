@@ -6,6 +6,7 @@ interface AuthContextType {
   user: User | null;
   loading: boolean;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   login: (email: string, pass: string) => Promise<AuthTokens>;
   register: (email: string, pass: string, name?: string, confirmPass?: string) => Promise<AuthTokens>;
   logout: () => Promise<void>;
@@ -17,6 +18,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const isAdmin = Boolean(user?.is_admin);
 
   const refreshProfile = async () => {
     const token = getAccessToken();
@@ -65,6 +67,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         user,
         loading,
         isAuthenticated: !!user,
+        isAdmin,
         login,
         register,
         logout,

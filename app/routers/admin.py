@@ -1,17 +1,20 @@
 import logging
+import os
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
-from sqlalchemy import case, func, select
+from fastapi.responses import FileResponse
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from ..database import SessionLocal, get_db
-from ..deps import require_admin
-from ..models import ImportRun, Internship
-from ..schemas import ImportRunOut
+from ..deps import AdminPrincipal, require_admin, require_admin_access
+from ..models import ImportRun, Internship, SavedInternship, User, UserActivity, UserConnection
+from ..schemas import AdminUserDetail, AdminUserListItem, AdminUserPage, ImportRunOut
 from ..services.importer import IMPORT_LOCK, run_many
 from ..services.preview import preview_source
 from ..services.sources import load_sources
 from ..services.status import check_links, refresh_statuses
+from .users import get_safe_resume_path
 
 log = logging.getLogger("internradar.admin")
 router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -146,3 +149,211 @@ def coverage(db: Session = Depends(get_db)):
             "complete_record": int(complete or 0),
         },
     }
+
+
+# ── user management ───────────────────────────────────────────────────────────
+def _compute_missing_fields(u: User) -> list[str]:
+    missing = []
+    if not (u.full_name and u.full_name.strip()):
+        missing.append("full_name")
+    if not (u.college and u.college.strip()):
+        missing.append("college")
+    if not (u.degree and u.degree.strip()):
+        missing.append("degree")
+    if not u.graduation_year:
+        missing.append("graduation_year")
+    if not (u.location and u.location.strip()):
+        missing.append("location")
+    if not (u.skills and len(u.skills) > 0):
+        missing.append("skills")
+    if not (u.desired_roles and len(u.desired_roles) > 0):
+        missing.append("desired_roles")
+    if not (u.work_types and len(u.work_types) > 0):
+        missing.append("work_types")
+    return missing
+
+
+def _build_list_item(u: User) -> AdminUserListItem:
+    missing = _compute_missing_fields(u)
+    return AdminUserListItem(
+        id=u.id,
+        full_name=u.full_name,
+        email=u.email,
+        college=u.college,
+        degree=u.degree,
+        graduation_year=u.graduation_year,
+        location=u.location,
+        skills=u.skills or [],
+        desired_roles=u.desired_roles or [],
+        work_types=u.work_types or [],
+        is_admin=bool(u.is_admin),
+        is_active=bool(u.is_active),
+        is_onboarded=bool(u.is_onboarded),
+        has_resume=bool(u.resume_path),
+        resume_filename=u.resume_filename,
+        resume_size_bytes=u.resume_size_bytes,
+        resume_uploaded_at=u.resume_uploaded_at,
+        missing_fields=missing,
+        created_at=u.created_at,
+        updated_at=u.updated_at,
+        last_login=u.last_login,
+    )
+
+
+@router.get("/users", response_model=AdminUserPage)
+def list_users_admin(
+    q: str | None = Query(None, description="Search by full name, email, or college"),
+    skills: str | None = Query(None, description="Filter by comma-separated skill list"),
+    grad_year: int | None = Query(None, description="Filter by graduation year"),
+    completion: str = Query("all", description="Filter by completeness: all | complete | incomplete"),
+    resume: str = Query("all", description="Filter by resume status: all | with_resume | without_resume"),
+    limit: int = Query(25, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    admin: AdminPrincipal = Depends(require_admin_access),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: list all registered users with filter, search, profile completeness, and resume status."""
+    log.info(
+        "AUDIT [Admin: %s] list_users (q='%s', skills='%s', grad_year=%s, completion=%s, resume=%s, limit=%d, offset=%d)",
+        admin.identifier,
+        q or "",
+        skills or "",
+        grad_year,
+        completion,
+        resume,
+        limit,
+        offset,
+    )
+
+    query = select(User)
+    conds = []
+
+    if q:
+        query_pattern = f"%{q.strip()}%"
+        conds.append(
+            or_(
+                User.full_name.ilike(query_pattern),
+                User.email.ilike(query_pattern),
+                User.college.ilike(query_pattern),
+            )
+        )
+
+    if grad_year:
+        conds.append(User.graduation_year == grad_year)
+
+    if resume == "with_resume":
+        conds.append(User.resume_path.is_not(None))
+    elif resume == "without_resume":
+        conds.append(User.resume_path.is_(None))
+
+    if conds:
+        query = query.where(*conds)
+
+    all_matched = db.scalars(query.order_by(User.id.desc())).all()
+
+    # In-memory filtering for skills and profile completeness
+    filtered: list[User] = []
+    wanted_skills = {s.strip().lower() for s in skills.split(",") if s.strip()} if skills else set()
+
+    for u in all_matched:
+        if wanted_skills:
+            user_skills = {s.lower() for s in (u.skills or [])}
+            if not (wanted_skills & user_skills):
+                continue
+
+        missing = _compute_missing_fields(u)
+        is_complete = len(missing) == 0
+        if completion == "complete" and not is_complete:
+            continue
+        if completion == "incomplete" and is_complete:
+            continue
+
+        filtered.append(u)
+
+    total = len(filtered)
+    page_users = filtered[offset : offset + limit]
+    items = [_build_list_item(u) for u in page_users]
+
+    return AdminUserPage(
+        total=total,
+        limit=limit,
+        offset=offset,
+        items=items,
+    )
+
+
+@router.get("/users/{user_id}", response_model=AdminUserDetail)
+def get_user_detail_admin(
+    user_id: int,
+    admin: AdminPrincipal = Depends(require_admin_access),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: inspect comprehensive user profile, academic history, preferences, and activity counts."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    log.info("AUDIT [Admin: %s] view_user_detail user_id=%d (%s)", admin.identifier, user.id, user.email)
+
+    # Activity and connection counts
+    saved_count = db.scalar(select(func.count()).select_from(SavedInternship).where(SavedInternship.user_id == user.id)) or 0
+    activity_count = db.scalar(select(func.count()).select_from(UserActivity).where(UserActivity.user_id == user.id)) or 0
+    connections_count = db.scalar(
+        select(func.count()).select_from(UserConnection).where(
+            or_(UserConnection.requester_id == user.id, UserConnection.addressee_id == user.id)
+        )
+    ) or 0
+
+    base_item = _build_list_item(user)
+    return AdminUserDetail(
+        **base_item.model_dump(),
+        mobile=user.mobile,
+        gender=user.gender,
+        branch=user.branch,
+        cgpa=user.cgpa,
+        bio=user.bio,
+        linkedin_url=user.linkedin_url,
+        github_url=user.github_url,
+        portfolio_url=user.portfolio_url,
+        resume_content_type=user.resume_content_type,
+        resume_skills=user.resume_skills or [],
+        email_verified=bool(user.email_verified),
+        saved_count=saved_count,
+        activity_count=activity_count,
+        connections_count=connections_count,
+    )
+
+
+@router.get("/users/{user_id}/resume")
+def download_user_resume_admin(
+    user_id: int,
+    download: bool = Query(False, description="Whether to trigger file download"),
+    admin: AdminPrincipal = Depends(require_admin_access),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: secure preview or download of user uploaded resume."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(404, "User not found")
+
+    if not user.resume_path:
+        raise HTTPException(404, "User has not uploaded a resume")
+
+    safe_path = get_safe_resume_path(user.resume_path)
+    filename = user.resume_filename or os.path.basename(safe_path)
+    disposition = "attachment" if download else "inline"
+
+    log.info(
+        "AUDIT [Admin: %s] download_resume user_id=%d (target=%s, file=%s, disposition=%s)",
+        admin.identifier,
+        user.id,
+        user.email,
+        filename,
+        disposition,
+    )
+
+    return FileResponse(
+        safe_path,
+        media_type=user.resume_content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )

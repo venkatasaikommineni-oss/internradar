@@ -1,12 +1,14 @@
 """User profile, resume upload, public profiles, connections."""
 from __future__ import annotations
 
+import io
 import logging
 import os
 import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
@@ -32,6 +34,55 @@ _ALLOWED_RESUME_EXTS = {".pdf", ".docx", ".txt"}
 _ALLOWED_PHOTO_EXTS = {".jpg", ".jpeg", ".png", ".webp"}
 
 
+def validate_resume_file(content: bytes, ext: str) -> str:
+    """Validate magic bytes / signatures and return normalized MIME content type.
+    Rejects disguised executables or corrupt files.
+    """
+    if ext == ".pdf":
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(415, "Invalid PDF file: Missing %PDF- signature.")
+        return "application/pdf"
+    elif ext == ".docx":
+        if not content.startswith(b"PK\x03\x04"):
+            raise HTTPException(415, "Invalid DOCX file: Missing PK archive signature.")
+        try:
+            import zipfile
+            with zipfile.ZipFile(io.BytesIO(content)) as zf:
+                names = zf.namelist()
+                if not any(n.startswith("word/") or n == "[Content_Types].xml" for n in names):
+                    raise HTTPException(415, "Invalid DOCX file: Missing Word document structure.")
+        except zipfile.BadZipFile:
+            raise HTTPException(415, "Invalid DOCX file: Corrupt ZIP archive.")
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    elif ext == ".txt":
+        if b"\x00" in content:
+            raise HTTPException(415, "Invalid TXT file: Contains binary null bytes.")
+        try:
+            content.decode("utf-8")
+        except UnicodeDecodeError:
+            try:
+                content.decode("latin-1")
+            except Exception:
+                raise HTTPException(415, "Invalid TXT file: Unable to decode text content.")
+        return "text/plain"
+    else:
+        raise HTTPException(415, f"Unsupported file extension: {ext}")
+
+
+def get_safe_resume_path(file_path: str | None) -> str:
+    """Ensure path traversal protection and verify resume file exists in private upload dir."""
+    if not file_path:
+        raise HTTPException(404, "No resume uploaded.")
+    real_base = os.path.realpath(settings.upload_dir)
+    real_target = os.path.realpath(file_path)
+    if not (real_target.startswith(real_base + os.sep) or real_target == real_base):
+        log.warning("Path traversal attempt blocked: base=%s target=%s", real_base, real_target)
+        raise HTTPException(400, "Invalid resume file path.")
+    if not os.path.isfile(real_target):
+        raise HTTPException(404, "Resume file not found on disk.")
+    return real_target
+
+
 @router.post("/users", status_code=201)
 def create_user_direct(
     payload: dict = {},
@@ -52,7 +103,7 @@ def create_user_direct(
         specializations=[],
     )
     for k, v in payload.items():
-        if hasattr(user, k) and k not in ("id", "created_at", "updated_at"):
+        if hasattr(user, k) and k not in ("id", "created_at", "updated_at", "is_admin"):
             setattr(user, k, v)
     db.add(user)
     db.commit()
@@ -106,26 +157,41 @@ def update_profile(
     if errors:
         raise HTTPException(422, errors)
 
+    # Protect immutable / sensitive fields
+    data.pop("is_admin", None)
+    data.pop("id", None)
+    data.pop("email", None)
+
     for k, v in data.items():
         setattr(user, k, v)
     user.updated_at = utcnow()
 
-    # Mark onboarded if key fields are filled
-    if user.full_name and user.skills and user.desired_roles:
-        user.is_onboarded = True
+    # Mark onboarded if key mandatory fields are filled
+    is_complete = bool(
+        user.full_name
+        and user.college
+        and user.degree
+        and user.graduation_year
+        and user.location
+        and (user.skills and len(user.skills) > 0)
+        and (user.desired_roles and len(user.desired_roles) > 0)
+        and (user.work_types and len(user.work_types) > 0)
+    )
+    user.is_onboarded = is_complete
 
     db.commit()
     return user
 
 
-# ── resume upload ─────────────────────────────────────────────────────────────
+# ── resume upload & management ────────────────────────────────────────────────
 @router.post("/profile/resume", response_model=UserOut)
 async def upload_resume(
     file: UploadFile = File(...),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload a PDF/DOCX/TXT resume. Skills are auto-extracted and merged into profile."""
+    """Upload a PDF/DOCX/TXT resume. Validates magic bytes, enforces size limit,
+    tracks metadata, and auto-extracts skills into profile."""
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in _ALLOWED_RESUME_EXTS:
         raise HTTPException(415, f"Unsupported file type. Allowed: {', '.join(_ALLOWED_RESUME_EXTS)}")
@@ -134,10 +200,25 @@ async def upload_resume(
     if len(content) > settings.max_resume_size_mb * 1024 * 1024:
         raise HTTPException(413, f"File too large. Maximum size: {settings.max_resume_size_mb} MB")
 
-    # Ensure upload dir
+    # Validate magic bytes / file structure
+    content_type = validate_resume_file(content, ext)
+
+    # Ensure upload directory
     os.makedirs(settings.upload_dir, exist_ok=True)
-    filename = f"resume_{user.id}_{uuid.uuid4().hex}{ext}"
-    save_path = os.path.join(settings.upload_dir, filename)
+
+    # Clean previous resume file if it exists
+    if user.resume_path:
+        try:
+            old_path = get_safe_resume_path(user.resume_path)
+            if os.path.exists(old_path):
+                os.remove(old_path)
+        except Exception:
+            pass
+
+    original_filename = os.path.basename(file.filename or "resume")[:250]
+    safe_storage_name = f"resume_{user.id}_{uuid.uuid4().hex}{ext}"
+    save_path = os.path.join(settings.upload_dir, safe_storage_name)
+
     with open(save_path, "wb") as f:
         f.write(content)
 
@@ -145,14 +226,11 @@ async def upload_resume(
     text = extract_text(content, file.filename or "")
     skills = extract_skills_from_text(text)
 
-    # Delete old resume file
-    if user.resume_path and os.path.exists(user.resume_path):
-        try:
-            os.remove(user.resume_path)
-        except OSError:
-            pass
-
     user.resume_path = save_path
+    user.resume_filename = original_filename
+    user.resume_content_type = content_type
+    user.resume_size_bytes = len(content)
+    user.resume_uploaded_at = utcnow()
     user.resume_text = text[:50000]  # cap stored text
     user.resume_skills = skills
 
@@ -162,7 +240,49 @@ async def upload_resume(
     user.updated_at = utcnow()
     db.commit()
 
-    log.info("User %s uploaded resume; extracted %d skills", user.id, len(skills))
+    log.info("User %s uploaded resume '%s' (%d bytes); extracted %d skills", user.id, original_filename, len(content), len(skills))
+    return user
+
+
+@router.get("/profile/resume")
+def download_my_resume(
+    download: bool = Query(False, description="Whether to trigger file download"),
+    user: User = Depends(get_current_user),
+):
+    """Download or preview own resume with authorization and path verification."""
+    safe_path = get_safe_resume_path(user.resume_path)
+    filename = user.resume_filename or os.path.basename(safe_path)
+    disposition = "attachment" if download else "inline"
+    return FileResponse(
+        safe_path,
+        media_type=user.resume_content_type or "application/octet-stream",
+        headers={"Content-Disposition": f'{disposition}; filename="{filename}"'},
+    )
+
+
+@router.delete("/profile/resume", response_model=UserOut)
+def delete_my_resume(
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete own resume file and metadata."""
+    if user.resume_path:
+        try:
+            safe_path = get_safe_resume_path(user.resume_path)
+            if os.path.exists(safe_path):
+                os.remove(safe_path)
+        except Exception as e:
+            log.warning("Could not delete resume file for user %s: %s", user.id, e)
+
+    user.resume_path = None
+    user.resume_filename = None
+    user.resume_content_type = None
+    user.resume_size_bytes = None
+    user.resume_uploaded_at = None
+    user.resume_text = None
+    user.resume_skills = []
+    user.updated_at = utcnow()
+    db.commit()
     return user
 
 

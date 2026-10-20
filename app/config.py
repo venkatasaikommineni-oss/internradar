@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -11,7 +12,24 @@ class Settings(BaseSettings):
 
     database_url: str = "sqlite:///./internradar.db"
     admin_api_key: str = ""
+    admin_emails: list[str] = ["admin@internradar.in"]
     cors_origins: list[str] = ["*"]
+
+    @field_validator("admin_emails", mode="before")
+    @classmethod
+    def _parse_admin_emails(cls, v):
+        if isinstance(v, str):
+            import json
+            try:
+                parsed = json.loads(v)
+                if isinstance(parsed, list):
+                    return [str(x).strip().lower() for x in parsed if str(x).strip()]
+            except Exception:
+                pass
+            return [x.strip().lower() for x in v.split(",") if x.strip()]
+        if isinstance(v, list):
+            return [str(x).strip().lower() for x in v if str(x).strip()]
+        return v
 
     # JWT / auth
     secret_key: str = os.urandom(32).hex()  # override with a stable key in production

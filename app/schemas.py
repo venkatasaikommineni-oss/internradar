@@ -116,6 +116,7 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     user_id: int
     is_onboarded: bool
+    is_admin: bool = False
 
 
 class RefreshRequest(BaseModel):
@@ -149,6 +150,54 @@ class ProfileUpdate(BaseModel):
     notify_new_matches: bool | None = None
     notify_deadline: bool | None = None
 
+    @field_validator("full_name", "college", "degree", "location", mode="before")
+    @classmethod
+    def _validate_required_text(cls, v: str | None, info):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                field_name = info.field_name.replace("_", " ").title()
+                raise ValueError(f"{field_name} cannot be empty or whitespace only")
+            return s
+        return v
+
+    @field_validator("skills", "desired_roles", "work_types", mode="before")
+    @classmethod
+    def _validate_required_list(cls, v: list | None, info):
+        if v is None:
+            return None
+        if isinstance(v, list):
+            cleaned = [str(x).strip() for x in v if str(x).strip()]
+            if not cleaned:
+                field_name = info.field_name.replace("_", " ").title()
+                raise ValueError(f"At least one {field_name.lower()} is required")
+            return cleaned
+        return v
+
+    @field_validator("linkedin_url", "github_url", "portfolio_url", mode="before")
+    @classmethod
+    def _validate_optional_urls(cls, v: str | None):
+        if v is None:
+            return None
+        if isinstance(v, str):
+            s = v.strip()
+            if not s:
+                return None
+            if not (s.startswith("http://") or s.startswith("https://")):
+                s = f"https://{s}"
+            return s
+        return v
+
+    @field_validator("mobile", mode="before")
+    @classmethod
+    def _validate_mobile(cls, v: str | None):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if s else None
+
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -175,7 +224,12 @@ class UserOut(BaseModel):
     cgpa: float | None = None
     email_verified: bool = False
     is_onboarded: bool = False
+    is_admin: bool = False
     resume_path: str | None = None
+    resume_filename: str | None = None
+    resume_content_type: str | None = None
+    resume_size_bytes: int | None = None
+    resume_uploaded_at: datetime | None = None
     resume_skills: list[str] = []
     notify_new_matches: bool = True
     notify_deadline: bool = True
@@ -298,3 +352,54 @@ class ImportRunOut(BaseModel):
     error: str | None = None
     closed: int | None = None
     duration_ms: int | None = None
+
+
+# ── admin user management ─────────────────────────────────────────────────────
+class AdminUserListItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    full_name: str | None = None
+    email: str | None = None
+    college: str | None = None
+    degree: str | None = None
+    graduation_year: int | None = None
+    location: str | None = None
+    skills: list[str] = []
+    desired_roles: list[str] = []
+    work_types: list[str] = []
+    is_admin: bool = False
+    is_active: bool = True
+    is_onboarded: bool = False
+    has_resume: bool = False
+    resume_filename: str | None = None
+    resume_size_bytes: int | None = None
+    resume_uploaded_at: datetime | None = None
+    missing_fields: list[str] = []
+    created_at: datetime
+    updated_at: datetime
+    last_login: datetime | None = None
+
+
+class AdminUserDetail(AdminUserListItem):
+    mobile: str | None = None
+    gender: str | None = None
+    branch: str | None = None
+    cgpa: float | None = None
+    bio: str | None = None
+    linkedin_url: str | None = None
+    github_url: str | None = None
+    portfolio_url: str | None = None
+    resume_content_type: str | None = None
+    resume_skills: list[str] = []
+    email_verified: bool = False
+    saved_count: int = 0
+    activity_count: int = 0
+    connections_count: int = 0
+
+
+class AdminUserPage(BaseModel):
+    total: int
+    limit: int
+    offset: int
+    items: list[AdminUserListItem]

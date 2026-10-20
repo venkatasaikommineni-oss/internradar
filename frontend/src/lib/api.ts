@@ -7,6 +7,9 @@ import {
   RecommendationPage,
   SavedInternship,
   ActivityPage,
+  AdminUserDetail,
+  AdminUserListItem,
+  AdminUserPage,
   StatsResponse,
   User,
   WorkType,
@@ -153,6 +156,44 @@ async function request<T>(
   return data as T;
 }
 
+export async function downloadBlobWithAuth(
+  endpoint: string,
+  defaultFilename = "resume.pdf",
+  openInNewTab = false
+): Promise<void> {
+  const token = getAccessToken();
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let msg = "Failed to download file";
+    try {
+      const j = await res.json();
+      msg = j.detail || msg;
+    } catch {}
+    throw new ApiError(res.status, msg);
+  }
+  const disposition = res.headers.get("Content-Disposition");
+  let filename = defaultFilename;
+  if (disposition) {
+    const match = disposition.match(/filename="?([^";]+)"?/i);
+    if (match && match[1]) filename = match[1];
+  }
+  const blob = await res.blob();
+  const blobUrl = URL.createObjectURL(blob);
+  if (openInNewTab) {
+    window.open(blobUrl, "_blank");
+  } else {
+    const a = document.createElement("a");
+    a.href = blobUrl;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  }
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 10000);
+}
+
 export const api = {
   // ── Authentication ──────────────────────────────────────────────────────────
   auth: {
@@ -290,6 +331,13 @@ export const api = {
         body: fd,
       });
     },
+    downloadResume: (download = false) => {
+      return downloadBlobWithAuth(`/api/profile/resume?download=${download}`, "resume.pdf", !download);
+    },
+    deleteResume: () =>
+      request<User>("/api/profile/resume", {
+        method: "DELETE",
+      }),
     uploadPhoto: (file: File) => {
       const fd = new FormData();
       fd.append("file", file);
@@ -342,5 +390,34 @@ export const api = {
       request<void>(`/api/connections/${connectionId}`, {
         method: "DELETE",
       }),
+  },
+
+  // ── Private Administrator Management ────────────────────────────────────────
+  admin: {
+    users: {
+      list: (params: {
+        q?: string;
+        skills?: string;
+        grad_year?: number;
+        completion?: string;
+        resume?: string;
+        limit?: number;
+        offset?: number;
+      } = {}) => {
+        const sp = new URLSearchParams();
+        if (params.q) sp.set("q", params.q);
+        if (params.skills) sp.set("skills", params.skills);
+        if (params.grad_year != null) sp.set("grad_year", String(params.grad_year));
+        if (params.completion) sp.set("completion", params.completion);
+        if (params.resume) sp.set("resume", params.resume);
+        if (params.limit != null) sp.set("limit", String(params.limit));
+        if (params.offset != null) sp.set("offset", String(params.offset));
+        return request<AdminUserPage>(`/api/admin/users?${sp.toString()}`);
+      },
+      getById: (userId: number) => request<AdminUserDetail>(`/api/admin/users/${userId}`),
+      downloadResume: (userId: number, download = false) => {
+        return downloadBlobWithAuth(`/api/admin/users/${userId}/resume?download=${download}`, `resume_${userId}.pdf`, !download);
+      },
+    },
   },
 };

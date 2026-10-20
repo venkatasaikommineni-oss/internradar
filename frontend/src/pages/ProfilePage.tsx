@@ -13,6 +13,14 @@ import {
   Lock,
   Save,
   Check,
+  Eye,
+  Download,
+  Trash2,
+  ShieldCheck,
+  AlertCircle,
+  Info,
+  Calendar,
+  HardDrive,
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
@@ -30,6 +38,8 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
 
   const [saving, setSaving] = useState(false);
   const [uploadingResume, setUploadingResume] = useState(false);
+  const [deletingResume, setDeletingResume] = useState(false);
+  const [downloadingResume, setDownloadingResume] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   // Form states
@@ -51,6 +61,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
   const [desiredRoles, setDesiredRoles] = useState<string[]>([]);
   const [specializations, setSpecializations] = useState<string[]>([]);
   const [workTypes, setWorkTypes] = useState<string[]>([]);
+
+  // Validation errors
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({});
 
   // Autocomplete inputs
   const [skillInput, setSkillInput] = useState("");
@@ -156,19 +169,56 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
     return () => clearTimeout(timer);
   }, [location]);
 
+  const validate = (): boolean => {
+    const errs: Record<string, string> = {};
+
+    if (!fullName.trim()) {
+      errs.fullName = "Full name is required and cannot be empty.";
+    }
+    if (!college.trim()) {
+      errs.college = "College or university is required.";
+    }
+    if (!degree.trim()) {
+      errs.degree = "Degree is required (e.g. B.Tech, BCA, MCA).";
+    }
+    if (graduationYear === "" || Number(graduationYear) < 2020 || Number(graduationYear) > 2035) {
+      errs.graduationYear = "A valid graduation year between 2020 and 2035 is required.";
+    }
+    if (!location.trim()) {
+      errs.location = "Location / City is required.";
+    }
+    if (skills.length === 0) {
+      errs.skills = "At least one technical skill is required.";
+    }
+    if (desiredRoles.length === 0) {
+      errs.desiredRoles = "At least one target internship role is required.";
+    }
+    if (workTypes.length === 0) {
+      errs.workTypes = "At least one preferred work mode (Remote/Hybrid/Onsite) is required.";
+    }
+
+    setValidationErrors(errs);
+    return Object.keys(errs).length === 0;
+  };
+
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validate()) {
+      error("Incomplete Profile", "Please fill in all mandatory fields marked with an asterisk (*).");
+      return;
+    }
+
     setSaving(true);
     try {
       await api.profile.update({
-        full_name: fullName.trim() || null,
+        full_name: fullName.trim(),
         mobile: mobile.trim() || null,
-        gender: gender || null,
-        location: location.trim() || null,
-        college: college.trim() || null,
-        degree: degree.trim() || null,
+        gender: (gender as any) || null,
+        location: location.trim(),
+        college: college.trim(),
+        degree: degree.trim(),
         branch: branch.trim() || null,
-        graduation_year: graduationYear !== "" ? Number(graduationYear) : null,
+        graduation_year: Number(graduationYear),
         cgpa: cgpa !== "" ? Number(cgpa) : null,
         bio: bio.trim() || null,
         linkedin_url: linkedinUrl.trim() || null,
@@ -177,10 +227,11 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
         skills,
         desired_roles: desiredRoles,
         specializations,
-        work_types: workTypes,
+        work_types: workTypes as any,
       });
       await refreshProfile();
-      success("Profile Updated", "Your student profile and matching preferences have been saved.");
+      setValidationErrors({});
+      success("Profile Updated", "Your essential profile details and matching preferences have been successfully saved.");
     } catch (err: any) {
       error("Save Failed", err.message || "Failed to update profile.");
     } finally {
@@ -192,6 +243,17 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 5 * 1024 * 1024) {
+      error("File Too Large", "Resume must be under 5 MB in size.");
+      return;
+    }
+
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (!["pdf", "docx", "txt"].includes(ext || "")) {
+      error("Invalid File Type", "Only PDF, DOCX, and TXT files are accepted.");
+      return;
+    }
+
     setUploadingResume(true);
     try {
       const updatedUser = await api.profile.uploadResume(file);
@@ -199,7 +261,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
       setSkills(updatedUser.skills || []);
       success(
         "Resume Uploaded",
-        `Extracted skills and merged ${updatedUser.resume_skills?.length || 0} technical proficiencies into your profile.`
+        `Extracted skills and updated your resume file (${file.name}).`
       );
     } catch (err: any) {
       error("Upload Failed", err.message || "Failed to parse resume.");
@@ -211,6 +273,45 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
     }
   };
 
+  const handleViewResume = async () => {
+    try {
+      setDownloadingResume(true);
+      await api.profile.downloadResume(false);
+    } catch (err: any) {
+      error("Preview Failed", err.message || "Unable to view resume.");
+    } finally {
+      setDownloadingResume(false);
+    }
+  };
+
+  const handleDownloadResume = async () => {
+    try {
+      setDownloadingResume(true);
+      await api.profile.downloadResume(true);
+      success("Download Started", "Your resume file is being downloaded.");
+    } catch (err: any) {
+      error("Download Failed", err.message || "Unable to download resume.");
+    } finally {
+      setDownloadingResume(false);
+    }
+  };
+
+  const handleDeleteResume = async () => {
+    if (!window.confirm("Are you sure you want to delete your stored resume? This action cannot be undone.")) {
+      return;
+    }
+    setDeletingResume(true);
+    try {
+      await api.profile.deleteResume();
+      await refreshProfile();
+      success("Resume Deleted", "Your resume file has been permanently removed.");
+    } catch (err: any) {
+      error("Delete Failed", err.message || "Failed to delete resume.");
+    } finally {
+      setDeletingResume(false);
+    }
+  };
+
   const toggleWorkType = (wt: string) => {
     if (workTypes.includes(wt)) {
       setWorkTypes(workTypes.filter((w) => w !== wt));
@@ -219,16 +320,48 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
     }
   };
 
+  const formatFileSize = (bytes?: number | null) => {
+    if (!bytes) return "";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  };
+
+  const formatDate = (dateStr?: string | null) => {
+    if (!dateStr) return "";
+    try {
+      return new Date(dateStr).toLocaleDateString("en-IN", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+      });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  // Determine missing fields for banner
+  const isProfileComplete = Boolean(
+    user?.full_name &&
+    user?.college &&
+    user?.degree &&
+    user?.graduation_year &&
+    user?.location &&
+    user?.skills?.length &&
+    user?.desired_roles?.length &&
+    user?.work_types?.length
+  );
+
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
       {/* Header */}
       <div className="border-b border-slate-200 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
-            Profile
+            Student Profile
           </h1>
           <p className="text-xs sm:text-sm text-slate-500 mt-1 leading-relaxed">
-            Update your education, skills, and internship preferences.
+            Manage your academic credentials, verified skills, and match preferences.
           </p>
         </div>
 
@@ -237,17 +370,45 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
         </Button>
       </div>
 
+      {/* Profile Incomplete Banner for legacy or new users */}
+      {!isProfileComplete && (
+        <div className="p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 flex items-start gap-3 shadow-xs">
+          <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+          <div className="text-xs space-y-1">
+            <span className="font-semibold block text-amber-950">
+              Profile Incomplete — Mandatory Information Needed
+            </span>
+            <p className="text-amber-800 leading-relaxed">
+              To match accurately with company internships and enable vetted employer applications, all essential fields marked with an asterisk (<span className="text-rose-600 font-bold">*</span>) are mandatory. Please fill in your education, skills, target roles, and work mode preferences below.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Privacy Notice Banner */}
+      <div className="p-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 flex items-start gap-3 shadow-xs">
+        <ShieldCheck className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
+        <div className="text-xs space-y-1">
+          <span className="font-semibold block text-blue-950">
+            Transparency & Private Data Protection
+          </span>
+          <p className="text-blue-800 leading-relaxed">
+            Your submitted contact information, academic marks, and uploaded resumes are private and only reviewed by authorized InternRadar administrators for eligibility verification and matching assistance. They are never published publicly or shared with other students. You retain full ownership and can replace or permanently delete your resume at any time.
+          </p>
+        </div>
+      </div>
+
       <form onSubmit={handleSaveProfile} className="space-y-6">
-        {/* ── Section 1: Resume Upload ────────────────────────────────────── */}
+        {/* ── Section 1: Resume Upload & Management ───────────────────────── */}
         <div className="p-5 rounded-md border border-slate-200 bg-white shadow-sm space-y-4">
-          <div className="flex items-start justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
                 <FileText className="h-4 w-4 text-blue-600" />
-                Resume
+                Resume Document
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
-                Upload a PDF or DOCX to auto-populate skills in your profile.
+                Upload your latest resume (PDF, DOCX, or TXT under 5 MB) for automated skill extraction and administrative vetting.
               </p>
             </div>
 
@@ -258,21 +419,95 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
               accept=".pdf,.docx,.txt"
               className="hidden"
             />
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              loading={uploadingResume}
-              onClick={() => fileInputRef.current?.click()}
-              className="text-xs shrink-0"
-            >
-              <Upload className="h-3.5 w-3.5 mr-1.5" />
-              {user?.resume_path ? "Replace Resume" : "Upload Resume"}
-            </Button>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                loading={uploadingResume}
+                onClick={() => fileInputRef.current?.click()}
+                className="text-xs shrink-0"
+              >
+                <Upload className="h-3.5 w-3.5 mr-1.5" />
+                {user?.resume_path ? "Replace Resume" : "Upload Resume"}
+              </Button>
+            </div>
           </div>
 
+          {/* Stored resume details & action buttons */}
+          {user?.resume_path ? (
+            <div className="p-3.5 rounded-lg bg-slate-50 border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="h-9 w-9 rounded-md bg-blue-100 text-blue-700 flex items-center justify-center shrink-0">
+                  <FileText className="h-5 w-5" />
+                </div>
+                <div className="min-w-0">
+                  <span className="text-xs font-semibold text-slate-900 block truncate">
+                    {user.resume_filename || "Stored Resume"}
+                  </span>
+                  <div className="flex items-center gap-2 text-[11px] text-slate-500 mt-0.5">
+                    {user.resume_size_bytes && (
+                      <span className="flex items-center gap-1">
+                        <HardDrive className="h-3 w-3" />
+                        {formatFileSize(user.resume_size_bytes)}
+                      </span>
+                    )}
+                    {user.resume_uploaded_at && (
+                      <span className="flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        Uploaded {formatDate(user.resume_uploaded_at)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleViewResume}
+                  loading={downloadingResume}
+                  className="text-xs h-7.5 px-2.5"
+                  title="Preview resume in new tab"
+                >
+                  <Eye className="h-3.5 w-3.5 mr-1 text-slate-600" /> Preview
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDownloadResume}
+                  loading={downloadingResume}
+                  className="text-xs h-7.5 px-2.5"
+                  title="Download resume file"
+                >
+                  <Download className="h-3.5 w-3.5 mr-1 text-slate-600" /> Download
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={handleDeleteResume}
+                  loading={deletingResume}
+                  className="text-xs h-7.5 px-2.5 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-200"
+                  title="Delete resume"
+                >
+                  <Trash2 className="h-3.5 w-3.5 mr-1" /> Delete
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="p-3 text-xs text-slate-500 bg-slate-50 rounded-md border border-dashed border-slate-200 flex items-center gap-2">
+              <Info className="h-4 w-4 text-slate-400 shrink-0" />
+              <span>No resume uploaded yet. Uploading a resume auto-extracts your skills and improves matching.</span>
+            </div>
+          )}
+
           {user?.resume_skills && user.resume_skills.length > 0 && (
-            <div className="pt-3 border-t border-slate-100">
+            <div className="pt-2">
               <span className="text-[11px] font-medium text-slate-500 block mb-1.5">
                 Skills extracted from your resume ({user.resume_skills.length}):
               </span>
@@ -299,57 +534,86 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Full Name</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Full Name <span className="text-rose-600 font-bold">*</span>
+              </label>
               <Input
                 type="text"
                 value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                placeholder="Full name"
+                onChange={(e) => {
+                  setFullName(e.target.value);
+                  if (validationErrors.fullName) {
+                    setValidationErrors((prev) => ({ ...prev, fullName: "" }));
+                  }
+                }}
+                placeholder="e.g. Aditi Sharma"
+                className={validationErrors.fullName ? "border-rose-400 focus:ring-rose-500" : ""}
                 required
               />
+              {validationErrors.fullName && (
+                <p className="text-[11px] text-rose-600 mt-1">{validationErrors.fullName}</p>
+              )}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Email</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Email Address <span className="text-rose-600 font-bold">*</span>
+              </label>
               <Input type="email" value={user?.email || ""} disabled className="bg-slate-50 text-slate-500" />
+              <p className="text-[10px] text-slate-400 mt-0.5">Verified registration email</p>
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Mobile</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Mobile Number <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <Input
                 type="tel"
                 value={mobile}
                 onChange={(e) => setMobile(e.target.value)}
-                placeholder="+91 XXXXX XXXXX"
+                placeholder="+91 98765 43210"
               />
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Gender</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Gender <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <select
                 value={gender}
                 onChange={(e) => setGender(e.target.value)}
                 className="w-full h-9 rounded-md border border-slate-300 bg-white px-3 text-xs sm:text-sm text-slate-800"
               >
                 <option value="">Prefer not to state</option>
-                <option value="Male">Male</option>
-                <option value="Female">Female</option>
-                <option value="Non-binary">Non-binary</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+                <option value="non_binary">Non-binary</option>
+                <option value="prefer_not_to_say">Prefer not to say</option>
               </select>
             </div>
 
             <div className="sm:col-span-2 relative">
-              <label className="text-xs font-medium text-slate-700 block mb-1">Location / City</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Location / City <span className="text-rose-600 font-bold">*</span>
+              </label>
               <Input
                 type="text"
                 value={location}
                 onChange={(e) => {
                   setLocation(e.target.value);
                   setShowLocationList(true);
+                  if (validationErrors.location) {
+                    setValidationErrors((prev) => ({ ...prev, location: "" }));
+                  }
                 }}
                 onFocus={() => setShowLocationList(true)}
-                placeholder="e.g. Bengaluru, Hyderabad, Pune, Mumbai, Delhi"
+                placeholder="e.g. Bengaluru, Hyderabad, Pune, Mumbai, Delhi, Remote"
+                className={validationErrors.location ? "border-rose-400 focus:ring-rose-500" : ""}
+                required
               />
+              {validationErrors.location && (
+                <p className="text-[11px] text-rose-600 mt-1">{validationErrors.location}</p>
+              )}
               {showLocationList && locationSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-md shadow-md z-30 py-1">
                   {locationSuggestions.map((loc) => (
@@ -370,48 +634,76 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
             </div>
 
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-slate-700 block mb-1">Bio</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Bio / Summary <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <textarea
                 value={bio}
                 onChange={(e) => setBio(e.target.value)}
                 rows={3}
-                placeholder="Brief summary of your background, projects, or interests..."
+                placeholder="Brief summary of your background, projects, or primary interests..."
                 className="w-full rounded-md border border-slate-300 p-2.5 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-1 focus:ring-blue-600"
               />
             </div>
           </div>
         </div>
 
-        {/* ── Section 3: Education ───────────────────────────────────────────── */}
+        {/* ── Section 3: Academic Background ───────────────────────────────── */}
         <div className="p-5 rounded-md border border-slate-200 bg-white shadow-sm space-y-4">
           <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2.5">
             <GraduationCap className="h-4 w-4 text-blue-600" />
-            Education
+            Academic Background
           </h3>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="sm:col-span-2">
-              <label className="text-xs font-medium text-slate-700 block mb-1">College / University</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                College / University <span className="text-rose-600 font-bold">*</span>
+              </label>
               <Input
                 type="text"
                 value={college}
-                onChange={(e) => setCollege(e.target.value)}
-                placeholder="e.g. IIT Bombay, BITS Pilani, NIT Trichy"
+                onChange={(e) => {
+                  setCollege(e.target.value);
+                  if (validationErrors.college) {
+                    setValidationErrors((prev) => ({ ...prev, college: "" }));
+                  }
+                }}
+                placeholder="e.g. IIT Bombay, BITS Pilani, NIT Trichy, Anna University"
+                className={validationErrors.college ? "border-rose-400 focus:ring-rose-500" : ""}
+                required
               />
+              {validationErrors.college && (
+                <p className="text-[11px] text-rose-600 mt-1">{validationErrors.college}</p>
+              )}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Degree</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Degree <span className="text-rose-600 font-bold">*</span>
+              </label>
               <Input
                 type="text"
                 value={degree}
-                onChange={(e) => setDegree(e.target.value)}
-                placeholder="e.g. B.Tech, BCA, MCA, M.Tech"
+                onChange={(e) => {
+                  setDegree(e.target.value);
+                  if (validationErrors.degree) {
+                    setValidationErrors((prev) => ({ ...prev, degree: "" }));
+                  }
+                }}
+                placeholder="e.g. B.Tech, BCA, MCA, M.Tech, B.Sc"
+                className={validationErrors.degree ? "border-rose-400 focus:ring-rose-500" : ""}
+                required
               />
+              {validationErrors.degree && (
+                <p className="text-[11px] text-rose-600 mt-1">{validationErrors.degree}</p>
+              )}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Branch / Major</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Branch / Major <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <Input
                 type="text"
                 value={branch}
@@ -421,19 +713,33 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Graduation Year</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Graduation Year <span className="text-rose-600 font-bold">*</span>
+              </label>
               <Input
                 type="number"
                 value={graduationYear}
-                onChange={(e) => setGraduationYear(e.target.value ? Number(e.target.value) : "")}
+                onChange={(e) => {
+                  setGraduationYear(e.target.value ? Number(e.target.value) : "");
+                  if (validationErrors.graduationYear) {
+                    setValidationErrors((prev) => ({ ...prev, graduationYear: "" }));
+                  }
+                }}
                 placeholder="e.g. 2026"
                 min={2020}
-                max={2032}
+                max={2035}
+                className={validationErrors.graduationYear ? "border-rose-400 focus:ring-rose-500" : ""}
+                required
               />
+              {validationErrors.graduationYear && (
+                <p className="text-[11px] text-rose-600 mt-1">{validationErrors.graduationYear}</p>
+              )}
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">CGPA</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                CGPA / Percentage <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <Input
                 type="number"
                 step="0.01"
@@ -447,7 +753,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
           </div>
         </div>
 
-        {/* ── Section 4: Skills & Preferences ─────────────────────────────────── */}
+        {/* ── Section 4: Skills & Matching Preferences ─────────────────────── */}
         <div className="p-5 rounded-md border border-slate-200 bg-white shadow-sm space-y-5">
           <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2.5">
             <Briefcase className="h-4 w-4 text-blue-600" />
@@ -457,7 +763,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
           {/* Technical Skills */}
           <div>
             <label className="text-xs font-medium text-slate-700 block mb-1.5">
-              Skills ({skills.length})
+              Technical Skills <span className="text-rose-600 font-bold">*</span> ({skills.length})
             </label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {skills.map((skill) => (
@@ -494,6 +800,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
                         setSkills([...skills, s]);
                         setSkillInput("");
                         setSkillSuggestions([]);
+                        setValidationErrors((prev) => ({ ...prev, skills: "" }));
                       }}
                       className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center justify-between"
                     >
@@ -504,12 +811,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
                 </div>
               )}
             </div>
+            {validationErrors.skills && (
+              <p className="text-[11px] text-rose-600 mt-1.5">{validationErrors.skills}</p>
+            )}
           </div>
 
           {/* Desired Roles */}
           <div>
             <label className="text-xs font-medium text-slate-700 block mb-1.5">
-              Target Roles ({desiredRoles.length})
+              Target Internship Roles <span className="text-rose-600 font-bold">*</span> ({desiredRoles.length})
             </label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {desiredRoles.map((role) => (
@@ -546,6 +856,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
                         setDesiredRoles([...desiredRoles, r]);
                         setRoleInput("");
                         setRoleSuggestions([]);
+                        setValidationErrors((prev) => ({ ...prev, desiredRoles: "" }));
                       }}
                       className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center justify-between"
                     >
@@ -556,12 +867,15 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
                 </div>
               )}
             </div>
+            {validationErrors.desiredRoles && (
+              <p className="text-[11px] text-rose-600 mt-1.5">{validationErrors.desiredRoles}</p>
+            )}
           </div>
 
           {/* Specializations */}
           <div>
             <label className="text-xs font-medium text-slate-700 block mb-1.5">
-              Specializations ({specializations.length})
+              Specializations <span className="text-slate-400 text-[10px] font-normal">(Optional)</span> ({specializations.length})
             </label>
             <div className="flex flex-wrap gap-1.5 mb-2">
               {specializations.map((spec) => (
@@ -613,7 +927,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
           {/* Preferred Work Modes */}
           <div>
             <label className="text-xs font-medium text-slate-700 block mb-1.5">
-              Work Modes
+              Preferred Work Modes <span className="text-rose-600 font-bold">*</span>
             </label>
             <div className="flex gap-4 text-xs">
               {["remote", "hybrid", "onsite"].map((wt) => (
@@ -621,26 +935,37 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
                   <input
                     type="checkbox"
                     checked={workTypes.includes(wt)}
-                    onChange={() => toggleWorkType(wt)}
+                    onChange={() => {
+                      toggleWorkType(wt);
+                      setValidationErrors((prev) => ({ ...prev, workTypes: "" }));
+                    }}
                     className="rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                   />
                   {wt}
                 </label>
               ))}
             </div>
+            {validationErrors.workTypes && (
+              <p className="text-[11px] text-rose-600 mt-1.5">{validationErrors.workTypes}</p>
+            )}
           </div>
         </div>
 
-        {/* ── Section 5: Online Profiles ────────────────────────────────────── */}
+        {/* ── Section 5: Secondary Links (Strictly Optional) ──────────────── */}
         <div className="p-5 rounded-md border border-slate-200 bg-white shadow-sm space-y-4">
-          <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2 border-b border-slate-100 pb-2.5">
-            <Globe className="h-4 w-4 text-blue-600" />
-            Links
-          </h3>
+          <div className="border-b border-slate-100 pb-2.5 flex items-center justify-between">
+            <h3 className="text-sm font-semibold text-slate-900 flex items-center gap-2">
+              <Globe className="h-4 w-4 text-blue-600" />
+              External Links & Portfolios
+            </h3>
+            <span className="text-[11px] text-slate-400 font-normal">Optional</span>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">LinkedIn</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                LinkedIn Profile <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <Input
                 type="url"
                 value={linkedinUrl}
@@ -650,7 +975,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">GitHub</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                GitHub Profile <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <Input
                 type="url"
                 value={githubUrl}
@@ -660,7 +987,9 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
             </div>
 
             <div>
-              <label className="text-xs font-medium text-slate-700 block mb-1">Portfolio</label>
+              <label className="text-xs font-medium text-slate-700 block mb-1">
+                Personal Portfolio <span className="text-slate-400 text-[10px] font-normal">(Optional)</span>
+              </label>
               <Input
                 type="url"
                 value={portfolioUrl}
@@ -673,7 +1002,7 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
 
         {/* Submit Bar */}
         <div className="flex items-center justify-end gap-3 pt-2">
-          <Button type="submit" loading={saving} className="h-9 px-5 text-xs font-medium">
+          <Button type="submit" loading={saving} className="h-9 px-6 text-xs font-medium shadow-xs">
             <Save className="h-3.5 w-3.5 mr-1.5" /> Save Profile
           </Button>
         </div>

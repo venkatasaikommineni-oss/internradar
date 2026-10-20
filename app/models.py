@@ -13,6 +13,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -109,12 +110,17 @@ class User(Base):
     branch: Mapped[str | None] = mapped_column(String(100))
     cgpa: Mapped[float | None] = mapped_column(Float)
 
-    # resume
+    # resume metadata & storage
     resume_path: Mapped[str | None] = mapped_column(String(500))
+    resume_filename: Mapped[str | None] = mapped_column(String(255))
+    resume_content_type: Mapped[str | None] = mapped_column(String(100))
+    resume_size_bytes: Mapped[int | None] = mapped_column(Integer)
+    resume_uploaded_at: Mapped[datetime | None] = mapped_column(DateTime)
     resume_text: Mapped[str | None] = mapped_column(Text)   # extracted plain text for AI
     resume_skills: Mapped[list] = mapped_column(JSON, default=list)  # skills parsed from resume
 
-    # auth state
+    # auth state & roles
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("0"))
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_onboarded: Mapped[bool] = mapped_column(Boolean, default=False)

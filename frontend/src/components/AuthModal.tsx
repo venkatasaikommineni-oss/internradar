@@ -151,7 +151,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <form onSubmit={handleRegisterSubmit} className="space-y-3.5">
             <div>
               <label className="text-xs font-medium text-slate-700 block mb-1">
-                Full Name
+                Full Name <span className="text-rose-600 font-bold">*</span>
               </label>
               <Input
                 type="text"
@@ -166,7 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div>
               <label className="text-xs font-medium text-slate-700 block mb-1">
-                Email
+                Email <span className="text-rose-600 font-bold">*</span>
               </label>
               <Input
                 type="email"
@@ -180,7 +180,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div>
               <label className="text-xs font-medium text-slate-700 block mb-1">
-                Password
+                Password <span className="text-rose-600 font-bold">*</span>
               </label>
               <Input
                 type="password"
@@ -195,7 +195,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
             <div>
               <label className="text-xs font-medium text-slate-700 block mb-1">
-                Confirm Password
+                Confirm Password <span className="text-rose-600 font-bold">*</span>
               </label>
               <div className="relative">
                 <Input

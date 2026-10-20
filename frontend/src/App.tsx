@@ -7,6 +7,7 @@ import { SavedPage } from "./pages/SavedPage";
 import { AppliedPage } from "./pages/AppliedPage";
 import { ProfilePage } from "./pages/ProfilePage";
 import { NetworkPage } from "./pages/NetworkPage";
+import { AdminUsersPage } from "./pages/AdminUsersPage";
 import { InternshipDetailModal } from "./components/InternshipDetailModal";
 import { AuthModal } from "./components/AuthModal";
 import { ChangePasswordModal } from "./components/ChangePasswordModal";
@@ -43,7 +44,7 @@ export const App: React.FC = () => {
       } else if (hash.startsWith("register")) {
         setAuthModalMode("register");
         setAuthModalOpen(true);
-      } else if (["discover", "matches", "saved", "applied", "profile", "network"].includes(hash)) {
+      } else if (["discover", "matches", "saved", "applied", "profile", "network", "admin-users"].includes(hash)) {
         setActiveTab(hash);
       }
     };
@@ -137,6 +138,8 @@ export const App: React.FC = () => {
         )}
 
         {activeTab === "network" && <NetworkPage />}
+
+        {activeTab === "admin-users" && <AdminUsersPage />}
       </main>
 
       {/* Footer */}

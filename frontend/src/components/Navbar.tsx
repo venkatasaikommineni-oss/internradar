@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Compass, Bookmark, CheckSquare, Users, User, LogOut, Menu, X, Sparkles, ChevronDown, Lock } from "lucide-react";
+import { Compass, Bookmark, CheckSquare, Users, User, LogOut, Menu, X, Sparkles, ChevronDown, Lock, Shield } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "./ui/button";
 
@@ -16,7 +16,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuth,
   onOpenChangePassword,
 }) => {
-  const { user, isAuthenticated, logout } = useAuth();
+  const { user, isAuthenticated, isAdmin, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
 
@@ -26,6 +26,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: "saved", label: "Saved", icon: Bookmark, authRequired: true },
     { id: "applied", label: "Applications", icon: CheckSquare, authRequired: true },
     { id: "network", label: "Network", icon: Users, authRequired: true },
+    ...(isAdmin ? [{ id: "admin-users", label: "Admin Users", icon: Shield, adminOnly: true }] : []),
   ];
 
   const handleNavClick = (tabId: string) => {
@@ -106,6 +107,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                         <User className="h-3.5 w-3.5 text-slate-400" />
                         Profile & Resume
                       </button>
+                      {isAdmin && (
+                        <button
+                          onClick={() => {
+                            setUserDropdownOpen(false);
+                            handleNavClick("admin-users");
+                          }}
+                          className="w-full flex items-center gap-2 px-3 py-1.5 text-indigo-700 font-medium hover:bg-indigo-50 text-left"
+                        >
+                          <Shield className="h-3.5 w-3.5 text-indigo-600" />
+                          Admin Dashboard
+                        </button>
+                      )}
                       <button
                         onClick={() => {
                           setUserDropdownOpen(false);

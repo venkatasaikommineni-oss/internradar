@@ -56,6 +56,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already registered. Please log in.")
 
     now = utcnow()
+    is_admin = normalized_email in [e.lower() for e in settings.admin_emails]
     if not existing:
         user = User(
             email=normalized_email,
@@ -63,6 +64,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
             password_hash=hash_password(body.password),
             email_verified=True,
             is_active=True,
+            is_admin=is_admin,
             last_login=now,
         )
         db.add(user)
@@ -70,6 +72,8 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
         existing.full_name = body.full_name
         existing.password_hash = hash_password(body.password)
         existing.email_verified = True
+        if is_admin:
+            existing.is_admin = True
         existing.last_login = now
         user = existing
 
@@ -90,6 +94,7 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
         refresh_token=raw_refresh,
         user_id=user.id,
         is_onboarded=user.is_onboarded,
+        is_admin=bool(user.is_admin),
     )
 
 
@@ -104,9 +109,12 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         raise HTTPException(401, "Invalid credentials")
     if not user.email_verified:
         user.email_verified = True
-        db.commit()
     if not user.is_active:
         raise HTTPException(403, "Account disabled")
+
+    # If email matches admin emails config, ensure is_admin is True
+    if email in [e.lower() for e in settings.admin_emails]:
+        user.is_admin = True
 
     user.last_login = utcnow()
     db.commit()
@@ -125,6 +133,7 @@ def login(body: LoginRequest, db: Session = Depends(get_db)):
         refresh_token=raw_refresh,
         user_id=user.id,
         is_onboarded=user.is_onboarded,
+        is_admin=bool(user.is_admin),
     )
 
 
@@ -156,6 +165,7 @@ def refresh_token(body: RefreshRequest, db: Session = Depends(get_db)):
         refresh_token=raw_refresh,
         user_id=user.id,
         is_onboarded=user.is_onboarded,
+        is_admin=bool(user.is_admin),
     )
 
 
