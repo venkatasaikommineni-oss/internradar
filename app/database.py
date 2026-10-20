@@ -7,10 +7,19 @@ from .config import settings
 
 def normalize_database_url(url: str) -> str:
     """Normalize database connection string.
-    Render and other PaaS providers supply PostgreSQL URLs starting with 'postgres://',
-    which SQLAlchemy 2.0 rejects. Normalize to 'postgresql://'."""
+
+    Two transformations are applied for PostgreSQL URLs:
+    1. Render (and other PaaS) supply 'postgres://' which SQLAlchemy 2.0 rejects
+       — normalize to 'postgresql://'.
+    2. Pin the psycopg2 driver explicitly ('postgresql+psycopg2://') so that
+       SQLAlchemy 2.0 never auto-selects psycopg (v3), which is not installed.
+
+    SQLite URLs are returned unchanged.
+    """
     if url.startswith("postgres://"):
-        return url.replace("postgres://", "postgresql://", 1)
+        url = url.replace("postgres://", "postgresql://", 1)
+    if url.startswith("postgresql://"):
+        url = url.replace("postgresql://", "postgresql+psycopg2://", 1)
     return url
 
 
