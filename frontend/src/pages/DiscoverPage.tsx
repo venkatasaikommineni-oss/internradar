@@ -86,41 +86,32 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
   const [lastRefreshedAt, setLastRefreshedAt] = useState<string | null>(null);
 
-  // Fetch recommendations (Personalized for logged in, or top software picks for guests)
+  // Fetch personalized recommendations — only for authenticated users with a meaningful profile
+  const userHasProfile = Boolean(
+    isAuthenticated &&
+      user &&
+      ((user.skills && user.skills.length > 0) ||
+        (user.desired_roles && user.desired_roles.length > 0) ||
+        user.resume_path)
+  );
+
   const fetchRecommendations = useCallback(async () => {
+    // Only fetch if the user is logged in and has personalization data
+    if (!userHasProfile) {
+      setRecommendedItems([]);
+      setRecommendedLoading(false);
+      return;
+    }
     setRecommendedLoading(true);
     try {
-      if (isAuthenticated) {
-        const res = await api.recommendations.get({ limit: 3 });
-        if (res.items && res.items.length > 0) {
-          setRecommendedItems(res.items);
-          setRecommendedLoading(false);
-          return;
-        }
-      }
-      // Guest or profile with no skills yet: fallback to top verified software engineering roles
-      const general = await api.internships.search({
-        category: "software",
-        limit: 3,
-        sort: "newest",
-        status: "open",
-      });
-      const syntheticRecs: Recommendation[] = general.items.map((it) => ({
-        internship: it,
-        score: 85,
-        matched_skills: it.skills.slice(0, 3),
-        missing_skills: [],
-        eligible: true,
-        reasons: ["Top Software & Engineering Opportunity", it.work_type ? `${it.work_type} mode` : "Verified active"],
-        resume_boost: false,
-      }));
-      setRecommendedItems(syntheticRecs);
+      const res = await api.recommendations.get({ limit: 3 });
+      setRecommendedItems(res.items && res.items.length > 0 ? res.items : []);
     } catch {
       setRecommendedItems([]);
     } finally {
       setRecommendedLoading(false);
     }
-  }, [isAuthenticated]);
+  }, [userHasProfile]);
 
   // Fetch refresh status on mount
   useEffect(() => {
@@ -311,8 +302,8 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
         </div>
       )}
 
-      {/* ── Section: Recommended for You (~70% Software Focus) ── */}
-      {page === 1 && !searchQuery && !selectedCategory && recommendedItems.length > 0 && (
+      {/* ── Section: Recommended for You (shown only when user has a profile with skills/roles) ── */}
+      {page === 1 && !searchQuery && !selectedCategory && userHasProfile && recommendedItems.length > 0 && (
         <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-lg p-5 sm:p-6 text-white shadow-sm border border-slate-700 space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-700 pb-3">
             <div className="flex items-center gap-2">
@@ -322,14 +313,9 @@ export const DiscoverPage: React.FC<DiscoverPageProps> = ({
               <div>
                 <h2 className="text-sm sm:text-base font-semibold tracking-tight text-white flex items-center gap-2">
                   Recommended for You
-                  <span className="text-[10px] font-normal px-2 py-0.5 rounded bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                    Software Development
-                  </span>
                 </h2>
                 <p className="text-[11px] text-slate-400">
-                  {isAuthenticated
-                    ? "Ranked based on your profile skills, desired roles, and preferences"
-                    : "Top software engineering matches (Sign in to personalize your recommendations)"}
+                  Ranked based on your profile skills, desired roles, and preferences
                 </p>
               </div>
             </div>

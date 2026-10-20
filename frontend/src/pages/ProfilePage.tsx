@@ -16,7 +16,6 @@ import {
   Eye,
   Download,
   Trash2,
-  ShieldCheck,
   AlertCircle,
   Info,
   Calendar,
@@ -385,18 +384,6 @@ export const ProfilePage: React.FC<ProfilePageProps> = ({ onOpenChangePassword }
         </div>
       )}
 
-      {/* Privacy Notice Banner */}
-      <div className="p-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-900 flex items-start gap-3 shadow-xs">
-        <ShieldCheck className="h-5 w-5 text-blue-600 shrink-0 mt-0.5" />
-        <div className="text-xs space-y-1">
-          <span className="font-semibold block text-blue-950">
-            Transparency & Private Data Protection
-          </span>
-          <p className="text-blue-800 leading-relaxed">
-            Your submitted contact information, academic marks, and uploaded resumes are private and only reviewed by authorized InternRadar administrators for eligibility verification and matching assistance. They are never published publicly or shared with other students. You retain full ownership and can replace or permanently delete your resume at any time.
-          </p>
-        </div>
-      </div>
 
       <form onSubmit={handleSaveProfile} className="space-y-6">
         {/* ── Section 1: Resume Upload & Management ───────────────────────── */}

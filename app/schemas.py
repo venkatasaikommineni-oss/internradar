@@ -234,6 +234,14 @@ class ProfileUpdate(BaseModel):
         s = str(v).strip()
         return s if s else None
 
+    @field_validator("bio", mode="before")
+    @classmethod
+    def _validate_bio(cls, v: str | None):
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s if s else None
+
 
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -286,6 +294,13 @@ class UserOut(BaseModel):
         if v is None:
             return True
         return bool(v)
+
+    @field_validator("skills", "specializations", "desired_roles", "work_types", "resume_skills", mode="before")
+    @classmethod
+    def _coerce_list_default_empty(cls, v):
+        if v is None:
+            return []
+        return v
 
 
 

@@ -26,12 +26,22 @@ def recommend(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    has_meaningful_profile = bool(
+        (user.skills and len(user.skills) > 0)
+        or (user.desired_roles and len(user.desired_roles) > 0)
+        or (user.resume_skills and len(user.resume_skills) > 0)
+    )
+    if not has_meaningful_profile:
+        return RecommendationPage(
+            total=0,
+            items=[],
+            notes=["Complete your profile or upload a resume to get personalized recommendations."],
+        )
+
     notes = []
     if not user.email_verified:
         notes.append("Verify your email for the best experience.")
-    if not (user.skills or user.desired_roles or user.resume_skills):
-        notes.append("Complete your profile or upload a resume to get personalized recommendations.")
-    elif not user.desired_roles:
+    if not user.desired_roles:
         notes.append("Select desired roles in your profile for better role-based matching.")
     elif not user.skills and not user.resume_skills:
         notes.append("Add skills or upload a resume to improve skill matching.")

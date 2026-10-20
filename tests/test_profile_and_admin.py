@@ -436,3 +436,80 @@ def test_discovery_software_role_prioritization(client):
         title_low = it["title"].lower()
         assert any(w in title_low for w in ["software", "developer", "engineer", "sde", "coding", "programmer"])
 
+
+def test_profile_gender_and_bio_optional_and_saves_successfully(client, regular_user):
+    """Verify gender, bio, and social links are optional, and saving succeeds when empty."""
+    headers = {"Authorization": f"Bearer {regular_user['token']}"}
+
+    # 1. Update profile with gender and bio explicitly empty/None
+    payload = {
+        "full_name": "Priya Sharma",
+        "location": "Bengaluru",
+        "college": "RV College of Engineering",
+        "degree": "B.Tech",
+        "graduation_year": 2026,
+        "skills": ["python", "react"],
+        "desired_roles": ["Frontend Developer Intern"],
+        "work_types": ["remote"],
+        "gender": None,
+        "bio": "",
+        "linkedin_url": "",
+        "github_url": "",
+        "portfolio_url": "",
+    }
+    res = client.put("/api/profile", headers=headers, json=payload)
+    assert res.status_code == 200, res.text
+    data = res.json()
+    assert data["full_name"] == "Priya Sharma"
+    assert data["gender"] is None
+    assert data["bio"] is None
+    assert data["linkedin_url"] is None
+    assert data["github_url"] is None
+    assert data["portfolio_url"] is None
+    assert data["is_onboarded"] is True
+
+
+def test_recommendations_gated_to_users_with_meaningful_profile(client):
+    """Verify recommendations are hidden/empty for users without personalization data."""
+    # 1. Guest user gets 401
+    assert client.get("/api/recommendations").status_code == 401
+
+    # 2. Registered user with empty profile gets empty recommendations (no fake items)
+    email = f"new_student_{uuid.uuid4().hex[:8]}@gmail.com"
+    reg = client.post("/api/auth/register", json={
+        "email": email,
+        "password": "Password123!",
+        "confirm_password": "Password123!",
+        "full_name": "New Student",
+    })
+    assert reg.status_code == 201
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    # Call recommendations with incomplete profile
+    res = client.get("/api/recommendations", headers=headers)
+    assert res.status_code == 200
+    recs = res.json()
+    assert recs["total"] == 0
+    assert recs["items"] == []
+    assert any("Complete your profile" in n for n in recs["notes"])
+
+    # 3. After completing profile with skills and desired roles, real recommendations are returned
+    up = client.put("/api/profile", headers=headers, json={
+        "full_name": "Test Coder",
+        "location": "Bengaluru",
+        "college": "PES University",
+        "degree": "B.Tech",
+        "graduation_year": 2026,
+        "skills": ["python", "django"],
+        "desired_roles": ["Backend Developer Intern"],
+        "work_types": ["remote"],
+    })
+    assert up.status_code == 200
+
+    res2 = client.get("/api/recommendations", headers=headers)
+    assert res2.status_code == 200
+    recs2 = res2.json()
+    assert recs2["total"] > 0
+    assert len(recs2["items"]) > 0
+
