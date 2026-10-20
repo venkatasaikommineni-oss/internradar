@@ -40,14 +40,14 @@ def register(body: RegisterRequest, db: Session = Depends(get_db)):
     create user account, hash password, mark email_verified=True, and issue auth tokens."""
     if body.password != body.confirm_password:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Passwords do not match.",
         )
 
     is_valid, normalized_email, error_detail = validate_email_deliverable(body.email)
     if not is_valid:
         raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=error_detail or "Invalid or undeliverable email address.",
         )
 
